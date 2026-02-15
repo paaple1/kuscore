@@ -311,6 +311,15 @@ input:focus {
   outline-offset: 2px;
 }
 
+.step-btn,
+.ct-tab,
+.score-value,
+.num-pad-key,
+.num-pad-close,
+.faculty-button {
+  -webkit-tap-highlight-color: transparent;
+}
+
 .score-primary {
   font-size: 0.92rem;
   font-weight: 700;
@@ -423,6 +432,16 @@ input:focus {
   text-align: center;
   border-radius: 14px;
   padding: 0.62rem 0.7rem;
+}
+
+.mobile-keypad-mode .score-value:focus,
+.mobile-keypad-mode .score-value:focus-visible,
+.mobile-keypad-mode .ct-tab:focus,
+.mobile-keypad-mode .ct-tab:focus-visible,
+.mobile-keypad-mode .step-btn:focus,
+.mobile-keypad-mode .step-btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .mobile-keypad-mode .score-primary {
