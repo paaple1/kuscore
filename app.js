@@ -18,11 +18,159 @@ const ctFloatValueEl = document.getElementById("ctFloatValue");
 const secondaryFloatValueEl = document.getElementById("secondaryFloatValue");
 const totalFloatValueEl = document.getElementById("totalFloatValue");
 let currentCtInputMode = "detail";
+let keypadState = null;
+let keypadUi = null;
+const coarsePointerQuery = window.matchMedia("(pointer: coarse)");
 
 const toFixed2 = (num) => num.toLocaleString("ja-JP", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function isMobileKeypadMode() {
+  return coarsePointerQuery.matches;
+}
+
+function applyInputModeClass() {
+  const mobile = isMobileKeypadMode();
+  document.body.classList.toggle("mobile-keypad-mode", mobile);
+  document.body.classList.toggle("desktop-slider-mode", !mobile);
+  if (!mobile) {
+    closeKeypad();
+  }
+}
+
+function getSlider(sectionKey, subjectKey) {
+  return inputsArea.querySelector(
+    `input[data-role="slider"][data-section="${sectionKey}"][data-subject="${subjectKey}"]`
+  );
+}
+
+function setScoreDisplay(sectionKey, subjectKey, value, max, weighted, weightedMax) {
+  const valueEl = inputsArea.querySelector(`[data-value-for="${sectionKey}:${subjectKey}"]`);
+  if (valueEl) {
+    const primary = valueEl.querySelector(".score-primary");
+    const secondary = valueEl.querySelector(".score-secondary");
+    const progress = max > 0 ? (value / max) * 100 : 0;
+    if (primary) {
+      primary.textContent = `${Math.round(value)}/${Math.round(max)}`;
+    }
+    if (secondary) {
+      secondary.textContent = `傾斜 ${toFixed2(weighted)} / ${toFixed2(weightedMax)}`;
+    }
+    valueEl.style.setProperty("--pct", `${Math.min(100, Math.max(0, progress))}%`);
+  }
+}
+
+function setSliderValue(sectionKey, subjectKey, next) {
+  const slider = getSlider(sectionKey, subjectKey);
+  if (!slider) return;
+  const max = Number(slider.max);
+  const safe = Math.round(clamp(next, 0, max));
+  slider.value = String(safe);
+}
+
+function initKeypad() {
+  const backdrop = document.createElement("div");
+  backdrop.className = "num-pad-backdrop";
+  backdrop.hidden = true;
+  backdrop.innerHTML = `
+    <div class="num-pad-sheet" role="dialog" aria-modal="true" aria-label="点数入力パッド">
+      <div class="num-pad-head">
+        <strong id="numPadTitle">点数入力</strong>
+        <button type="button" class="num-pad-close" id="numPadClose">閉じる</button>
+      </div>
+      <div class="num-pad-value" id="numPadValue">0</div>
+      <div class="num-pad-hint" id="numPadHint">0 / 0</div>
+      <div class="num-pad-grid" id="numPadGrid"></div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+
+  const grid = backdrop.querySelector("#numPadGrid");
+  ["1", "2", "3", "4", "5", "6", "7", "8", "9", "AC", "0", "⌫"].forEach((key) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "num-pad-key";
+    btn.textContent = key;
+    btn.dataset.key = key;
+    btn.addEventListener("click", () => onKeypadPress(key));
+    btn.addEventListener("pointerdown", () => btn.classList.add("is-pressed"));
+    const clearPressed = () => btn.classList.remove("is-pressed");
+    btn.addEventListener("pointerup", clearPressed);
+    btn.addEventListener("pointerleave", clearPressed);
+    btn.addEventListener("pointercancel", clearPressed);
+    grid.appendChild(btn);
+  });
+
+  backdrop.querySelector("#numPadClose").addEventListener("click", closeKeypad);
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) closeKeypad();
+  });
+
+  keypadUi = {
+    backdrop,
+    title: backdrop.querySelector("#numPadTitle"),
+    value: backdrop.querySelector("#numPadValue"),
+    hint: backdrop.querySelector("#numPadHint")
+  };
+}
+
+function renderKeypad() {
+  if (!keypadState || !keypadUi) return;
+  keypadUi.title.textContent = keypadState.title;
+  keypadUi.value.textContent = String(keypadState.value);
+  keypadUi.hint.textContent = `${keypadState.value} / ${keypadState.max}`;
+}
+
+function openKeypad(sectionKey, subjectKey, title) {
+  if (!isMobileKeypadMode()) return;
+  const slider = getSlider(sectionKey, subjectKey);
+  if (!slider || !keypadUi) return;
+  keypadState = {
+    sectionKey,
+    subjectKey,
+    title,
+    max: Math.round(Number(slider.max)),
+    value: Math.round(Number(slider.value || 0)),
+    inputText: String(Math.round(Number(slider.value || 0)))
+  };
+  keypadUi.backdrop.hidden = false;
+  keypadUi.backdrop.classList.add("show");
+  renderKeypad();
+}
+
+function closeKeypad() {
+  if (!keypadUi) return;
+  keypadUi.backdrop.classList.remove("show");
+  keypadUi.backdrop.hidden = true;
+  keypadState = null;
+}
+
+function applyKeypadValue(next) {
+  if (!keypadState) return;
+  const safe = Math.round(clamp(next, 0, keypadState.max));
+  keypadState.value = safe;
+  keypadState.inputText = String(safe);
+  setSliderValue(keypadState.sectionKey, keypadState.subjectKey, safe);
+  renderKeypad();
+  calculate();
+}
+
+function onKeypadPress(key) {
+  if (!keypadState) return;
+  if (key === "AC") {
+    applyKeypadValue(0);
+    return;
+  }
+  if (key === "⌫") {
+    const trimmed = keypadState.inputText.slice(0, -1);
+    applyKeypadValue(trimmed === "" ? 0 : Number(trimmed));
+    return;
+  }
+  const base = keypadState.inputText === "0" ? "" : keypadState.inputText;
+  applyKeypadValue(Number(`${base}${key}`));
 }
 
 function bindStepHold(button, applyDelta) {
@@ -186,10 +334,17 @@ function createInputRow({ sectionKey, subject, subjectKey, rawMax, weightedMax, 
   plusBtn.className = "step-btn";
   plusBtn.textContent = "+";
 
-  const value = document.createElement("span");
+  const value = document.createElement("button");
+  value.type = "button";
   value.className = "score-value";
   value.dataset.valueFor = `${sectionKey}:${subjectKey}`;
-  value.textContent = `0/${Math.round(rawMax)}`;
+  value.innerHTML = `
+    <span class="score-primary">0/${Math.round(rawMax)}</span>
+    <span class="score-secondary">傾斜 0.00 / ${toFixed2(weightedMax)}</span>
+  `;
+  value.style.setProperty("--pct", "0%");
+  value.addEventListener("click", () => openKeypad(sectionKey, subjectKey, subject));
+  value.addEventListener("focus", () => openKeypad(sectionKey, subjectKey, subject));
 
   const meta = document.createElement("span");
   meta.className = "score-meta";
@@ -199,8 +354,9 @@ function createInputRow({ sectionKey, subject, subjectKey, rawMax, weightedMax, 
   const applyValue = (next) => {
     const max = Number(rangeInput.max);
     const safe = Math.round(clamp(next, 0, max));
-    rangeInput.value = String(safe);
-    value.textContent = `${safe}/${Math.round(max)}`;
+    setSliderValue(sectionKey, subjectKey, safe);
+    const weighted = (safe / max) * weightedMax;
+    setScoreDisplay(sectionKey, subjectKey, safe, max, weighted, weightedMax);
     calculate();
   };
 
@@ -246,16 +402,23 @@ function createWeightedInputRow({ sectionKey, subject, subjectKey, weightedMax }
   plusBtn.className = "step-btn";
   plusBtn.textContent = "+";
 
-  const value = document.createElement("span");
+  const value = document.createElement("button");
+  value.type = "button";
   value.className = "score-value";
   value.dataset.valueFor = `${sectionKey}:${subjectKey}`;
-  value.textContent = `0/${Math.round(weightedMax)}`;
+  value.innerHTML = `
+    <span class="score-primary">0/${Math.round(weightedMax)}</span>
+    <span class="score-secondary">傾斜 0.00 / ${toFixed2(weightedMax)}</span>
+  `;
+  value.style.setProperty("--pct", "0%");
+  value.addEventListener("click", () => openKeypad(sectionKey, subjectKey, subject));
+  value.addEventListener("focus", () => openKeypad(sectionKey, subjectKey, subject));
 
   const applyValue = (next) => {
     const max = Number(input.max);
     const safe = Math.round(clamp(next, 0, max));
-    input.value = String(safe);
-    value.textContent = `${safe}/${Math.round(max)}`;
+    setSliderValue(sectionKey, subjectKey, safe);
+    setScoreDisplay(sectionKey, subjectKey, safe, max, safe, weightedMax);
     calculate();
   };
 
@@ -367,6 +530,7 @@ function calculate() {
   if (currentCtInputMode === "weighted") {
     const input = byKey("ct-weighted-total", "ct-total");
     ctScore = clamp(Number(input?.value || 0), 0, program.totals.ct);
+    setScoreDisplay("ct-weighted-total", "ct-total", ctScore, program.totals.ct, ctScore, program.totals.ct);
     ctParts.forEach((s) => {
       const detailInput = byKey("ct-detail", s.key);
       ctRawScore += Math.round(clamp(Number(detailInput?.value || 0), 0, s.rawMax));
@@ -378,6 +542,7 @@ function calculate() {
       const score = Math.round(clamp(Number(input?.value || 0), 0, s.rawMax));
       ctRawScore += score;
       const weighted = (score / s.rawMax) * s.weightedMax;
+      setScoreDisplay("ct-detail", s.key, score, s.rawMax, weighted, s.weightedMax);
       ctRawWeighted += weighted;
       const meta = inputsArea.querySelector(`[data-meta="ct-detail:${s.key}"]`);
       if (meta) meta.textContent = `傾斜後 ${toFixed2(weighted)} / ${toFixed2(s.weightedMax)}`;
@@ -395,6 +560,7 @@ function calculate() {
     const input = byKey("secondary", s.key);
     const rawScore = Math.round(clamp(Number(input?.value || 0), 0, s.rawMax));
     const weighted = (rawScore / s.rawMax) * s.weightedMax;
+    setScoreDisplay("secondary", s.key, rawScore, s.rawMax, weighted, s.weightedMax);
     secondary += weighted;
     const meta = inputsArea.querySelector(`[data-meta="secondary:${s.key}"]`);
     if (meta) meta.textContent = `傾斜後 ${toFixed2(weighted)} / ${toFixed2(s.weightedMax)}`;
@@ -423,3 +589,6 @@ programSelect.addEventListener("change", renderInputs);
 
 renderFacultyOptions();
 renderFacultyButtons();
+initKeypad();
+applyInputModeClass();
+coarsePointerQuery.addEventListener("change", applyInputModeClass);
