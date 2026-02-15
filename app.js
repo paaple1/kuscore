@@ -134,7 +134,8 @@ function openKeypad(sectionKey, subjectKey, title) {
     title,
     max: Math.round(Number(slider.max)),
     value: Math.round(Number(slider.value || 0)),
-    inputText: String(Math.round(Number(slider.value || 0)))
+    inputText: String(Math.round(Number(slider.value || 0))),
+    replaceOnType: true
   };
   keypadUi.backdrop.hidden = false;
   keypadUi.backdrop.classList.add("show");
@@ -169,7 +170,8 @@ function onKeypadPress(key) {
     applyKeypadValue(trimmed === "" ? 0 : Number(trimmed));
     return;
   }
-  const base = keypadState.inputText === "0" ? "" : keypadState.inputText;
+  const base = keypadState.replaceOnType ? "" : (keypadState.inputText === "0" ? "" : keypadState.inputText);
+  keypadState.replaceOnType = false;
   applyKeypadValue(Number(`${base}${key}`));
 }
 
